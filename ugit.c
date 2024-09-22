@@ -133,7 +133,7 @@ char *generate_commit_id() {
 
 // Función para copiar archivos del stage a un nuevo directorio del commit
 int copy_staged_files_to_commit(const char *commit_id) {
-    char commit_dir[256];
+    char commit_dir[512];
     snprintf(commit_dir, sizeof(commit_dir), "%s/%s", COMMITS_DIR, commit_id);
 
     // Crear el directorio del commit
@@ -159,8 +159,8 @@ int copy_staged_files_to_commit(const char *commit_id) {
         int n1 = snprintf(staged_file, sizeof(staged_file), "%s/%s", STAGING_DIR, filename);
         int n2 = snprintf(commit_file, sizeof(commit_file), "%s/%s", commit_dir, filename);
 
-        if(n1 < 0 || n1 >= sizeof(staged_file) || n2 < 0 || n2 >= sizeof(commit_file)) {
-            printf("Error: Ruta del archivo demasiado larga.\n");
+        if (n1 >= sizeof(staged_file) || n2 >= sizeof(commit_file)) {
+            printf("Error: Ruta de archivo demasiado larga para manejarla.\n");
             return -1;
         }
 
@@ -235,7 +235,66 @@ int ugit_commit(const char *message) {
     return 0;
 }
 
-// Main que maneja los comandos "init", "add" y "commit"
+// Función para mostrar el log de commits
+int ugit_log() {
+    FILE *log_file = fopen(LOG_FILE, "r");
+    if (log_file == NULL) {
+        printf("Error al abrir el archivo de log '%s': %s\n", LOG_FILE, strerror(errno));
+        return -1;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), log_file)) {
+        printf("%s", line);  // Imprimir cada línea del archivo de log
+    }
+
+    fclose(log_file);
+    return 0;
+}
+
+// Función para cambiar a un commit específico
+int ugit_checkout(const char *commit_id) {
+    char commit_dir[512];
+    snprintf(commit_dir, sizeof(commit_dir), "%s/%s", COMMITS_DIR, commit_id);
+
+    // Verificar si el commit existe
+    if (!file_exists(commit_dir)) {
+        printf("Error: El commit '%s' no existe.\n", commit_id);
+        return -1;
+    }
+
+    // Abrir el archivo index para obtener los archivos a restaurar
+    FILE *index_file = fopen(INDEX_FILE, "r");
+    if (index_file == NULL) {
+        printf("Error al abrir el archivo índice '%s': %s\n", INDEX_FILE, strerror(errno));
+        return -1;
+    }
+
+    char filename[512];
+    while (fgets(filename, sizeof(filename), index_file) != NULL) {
+        // Remover el salto de línea del nombre del archivo
+        filename[strcspn(filename, "\n")] = 0;
+
+        // Construir las rutas de los archivos
+        char commit_file[512], working_file[512];
+        int n1 = snprintf(commit_file, sizeof(commit_file), "%s/%s", commit_dir, filename);
+        int n2 = snprintf(working_file, sizeof(working_file), "%s", filename);
+
+        if (n1 >= sizeof(commit_file) || n2 >= sizeof(working_file)) {
+            printf("Error: Ruta de archivo demasiado larga para manejarla.\n");
+            return -1;
+        }
+
+        // Restaurar el archivo del commit al directorio de trabajo
+        if (copy_file(commit_file, working_file) != 0) return -1;
+    }
+
+    fclose(index_file);
+    printf("Cambiaste al commit '%s'.\n", commit_id);
+    return 0;
+}
+
+// Main que maneja los comandos "init", "add", "commit", "log" y "checkout"
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Error: Debes proporcionar un comando. Uso: ./ugit <comando> [archivo/mensaje]\n");
@@ -259,11 +318,27 @@ int main(int argc, char *argv[]) {
     // Comprobamos si el comando es "commit"
     else if (strcmp(argv[1], "commit") == 0) {
         if (argc < 3) {
-            printf("Error: Debes proporcionar un mensaje de commit. Uso: ./ugit commit -m \"mensaje\"\n");
+            printf("Error: Debes proporcionar un mensaje de commit. Uso: ./ugit commit \"mensaje\"\n");
             return 1;
         }
         return ugit_commit(argv[2]);  // Ejecuta la función commit con el mensaje
-    } else {
+    }
+
+    // Comprobamos si el comando es "log"
+    else if (strcmp(argv[1], "log") == 0) {
+        return ugit_log();  // Ejecuta la función log para mostrar los commits
+    }
+
+    // Comprobamos si el comando es "checkout" y se proporciona un commit_id
+    else if (strcmp(argv[1], "checkout") == 0) {
+        if (argc < 3) {
+            printf("Error: Debes proporcionar un commit_id. Uso: ./ugit checkout <commit_id>\n");
+            return 1;
+        }
+        return ugit_checkout(argv[2]);  // Ejecuta la función checkout con el commit_id
+    }
+
+    else {
         printf("Error: Comando no reconocido '%s'.\n", argv[1]);
         return 1;
     }
